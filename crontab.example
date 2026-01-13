@@ -2,10 +2,10 @@
 # Edit and import with: crontab < crontab.example
 
 # Run on weekdays (Mon-Fri) at 9:30 & 21:30
-30 9,21 * * 1-5 cd /path/to/rss_digest && ./scripts/run.sh
+30 9,21 * * 1-5 cd /path/to/rss-digest && ./scripts/run.sh
 
 # Run on weekends (Sat-Sun) at 20:00
-0 20 * * 6,0 cd /path/to/rss_digest && ./scripts/run.sh
+0 20 * * 6,0 cd /path/to/rss-digest && ./scripts/run.sh
 
 # To install this crontab:
 # crontab -e

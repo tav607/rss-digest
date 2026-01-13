@@ -32,7 +32,7 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 # 日志配置
 LOG_DIR = PROJECT_ROOT / 'logs'
-DIGEST_LOG_PATH = LOG_DIR / 'rss_digest.log'
+DIGEST_LOG_PATH = LOG_DIR / 'rss-digest.log'
 API_DEBUG_LOG_PATH = LOG_DIR / 'api_debug.log'
 
 # Stage-1 (per-article) concurrency

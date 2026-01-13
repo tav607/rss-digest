@@ -52,8 +52,8 @@ An automated RSS digest generator that fetches articles from FreshRSS, categoriz
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://your-repository-url/rss_digest.git
-    cd rss_digest
+    git clone https://your-repository-url/rss-digest.git
+    cd rss-digest
     ```
 
 2.  **Run the setup script:**
@@ -133,7 +133,7 @@ You can automate the digest generation using a cron job.
 
     ```crontab
     # Run every day at 7 AM and 7 PM, generating a digest for the last 12 hours.
-    0 7,19 * * * cd /path/to/your/rss_digest && ./scripts/run.sh 12
+    0 7,19 * * * cd /path/to/your/rss-digest && ./scripts/run.sh 12
     ```
     **Important:** Make sure to use the absolute path to your project directory.
 
@@ -153,7 +153,7 @@ You can customize the application's behavior by editing `src/config/config.py`:
 If you encounter issues, please check the following:
 - Ensure all variables in `src/config/.env` are correctly set.
 - Verify that the path to your FreshRSS database is correct and the file is readable.
-- Check the log files in the `logs/` directory for detailed error messages (`rss_digest.log` and `api_debug.log`).
+- Check the log files in the `logs/` directory for detailed error messages (`rss-digest.log` and `api_debug.log`).
 
 ## Notes
 

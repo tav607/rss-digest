@@ -34,7 +34,7 @@ ENV/
 *.log
 logs/
 api_debug.log
-rss_digest.log
+rss-digest.log
 digest_*.txt
 
 # OS specific

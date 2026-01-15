@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 import datetime
 import json
+import re
 
 # 导入项目模块
 from src.config import (
@@ -121,31 +122,147 @@ def generate_digest(entries: List[Dict[Any, Any]]) -> str:
     
     return full_digest_with_title
 
+# Categories for Part 1 and Part 2
+PART1_CATEGORIES = ['AI', 'Semi', 'Smartphone']
+PART2_CATEGORIES = ['Other Tech', 'World News', 'Misc']
+
+
+def _split_digest_by_category(digest_text: str) -> Tuple[str, str]:
+    """
+    Split digest into two parts based on categories.
+
+    Part 1: AI, Semi, Smartphone
+    Part 2: Other Tech, World News, Misc
+
+    If only one part has content, no (1/2) or (2/2) markers are added.
+
+    Args:
+        digest_text: Full digest text with title
+
+    Returns:
+        Tuple of (part1_text, part2_text) with appropriate markers
+    """
+    # Extract title line (first line starting with #)
+    lines = digest_text.split('\n')
+    title_line = ""
+    content_start = 0
+
+    for i, line in enumerate(lines):
+        if line.strip().startswith('# '):
+            title_line = line.strip()
+            content_start = i + 1
+            break
+
+    # Get the content after title
+    content = '\n'.join(lines[content_start:])
+
+    # Split content by category sections (## Category)
+    # Pattern matches ## followed by category name
+    category_pattern = r'(## (?:AI|Semi|Smartphone|Other Tech|World News|Misc)\b)'
+    parts = re.split(category_pattern, content)
+
+    # Rebuild sections as dict
+    sections = {}
+    current_category = None
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        # Check if this part is a category header
+        match = re.match(r'^## (AI|Semi|Smartphone|Other Tech|World News|Misc)$', part)
+        if match:
+            current_category = match.group(1)
+            sections[current_category] = ""
+        elif current_category:
+            sections[current_category] = part
+
+    # Build Part 1 (AI, Semi, Smartphone)
+    part1_sections = []
+    for cat in PART1_CATEGORIES:
+        if cat in sections and sections[cat].strip():
+            part1_sections.append(f"## {cat}\n{sections[cat]}")
+
+    # Build Part 2 (Other Tech, World News, Misc)
+    part2_sections = []
+    for cat in PART2_CATEGORIES:
+        if cat in sections and sections[cat].strip():
+            part2_sections.append(f"## {cat}\n{sections[cat]}")
+
+    # Determine if we need markers based on whether both parts have content
+    has_part1 = bool(part1_sections)
+    has_part2 = bool(part2_sections)
+    use_markers = has_part1 and has_part2
+
+    # Create titles with or without markers
+    if use_markers:
+        title_with_marker_1 = (title_line.rstrip() + " (1/2)") if title_line else "# RSS 新闻摘要 (1/2)"
+        title_with_marker_2 = (title_line.rstrip() + " (2/2)") if title_line else "# RSS 新闻摘要 (2/2)"
+    else:
+        # No markers if only one part has content
+        title_with_marker_1 = title_line if title_line else "# RSS 新闻摘要"
+        title_with_marker_2 = title_line if title_line else "# RSS 新闻摘要"
+
+    # Combine into final texts
+    part1_text = title_with_marker_1 + "\n\n" + "\n\n".join(part1_sections) if part1_sections else ""
+    part2_text = title_with_marker_2 + "\n\n" + "\n\n".join(part2_sections) if part2_sections else ""
+
+    return part1_text, part2_text
+
+
 def send_digest(digest_text: str) -> Dict[str, Any]:
     """
-    Send the digest via Telegram
-    
+    Send the digest via Telegram, split into two messages by category.
+
+    Part 1: AI, Semi, Smartphone
+    Part 2: Other Tech, World News, Misc
+
     Args:
         digest_text: Digest text to send
-        
+
     Returns:
-        Response from Telegram
+        Response from Telegram (last message sent)
     """
-    logger.info("Sending digest via Telegram")
-    
+    logger.info("Sending digest via Telegram (split into two parts)")
+
     telegram = TelegramSender(
         bot_token=TELEGRAM_BOT_TOKEN,
         chat_id=TELEGRAM_CHAT_ID
     )
-    
-    response = telegram.send_message(digest_text)
-    
-    if response.get("success"):
-        logger.info("Digest sent successfully")
-    else:
-        logger.error(f"Failed to send digest: {response.get('error')}")
-        
-    return response
+
+    # Split digest into two parts
+    part1, part2 = _split_digest_by_category(digest_text)
+
+    # Check if both parts are empty (parsing failed or no recognized categories)
+    if not part1.strip() and not part2.strip():
+        logger.warning("Split produced empty parts, falling back to sending original digest")
+        return telegram.send_message(digest_text)
+
+    last_response = None
+    sent_count = 0
+
+    # Send Part 1 (AI, Semi, Smartphone)
+    if part1.strip():
+        logger.info(f"Sending Part 1 (AI, Semi, Smartphone), length: {len(part1)}")
+        response1 = telegram.send_message(part1)
+        if not response1.get("success"):
+            logger.error(f"Failed to send Part 1: {response1.get('error')}")
+            return response1
+        last_response = response1
+        sent_count += 1
+
+    # Send Part 2 (Other Tech, World News, Misc)
+    if part2.strip():
+        logger.info(f"Sending Part 2 (Other Tech, World News, Misc), length: {len(part2)}")
+        response2 = telegram.send_message(part2)
+        if not response2.get("success"):
+            logger.error(f"Failed to send Part 2: {response2.get('error')}")
+            return response2
+        last_response = response2
+        sent_count += 1
+
+    logger.info(f"Digest sent successfully ({sent_count} part(s))")
+    return last_response
 
 def _update_processed_ids(entry_ids: List[int]):
     """Helper function to update the processed IDs file incrementally and clean old IDs."""

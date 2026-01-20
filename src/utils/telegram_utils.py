@@ -4,7 +4,12 @@
 import requests
 import logging
 import re
+import warnings
+from datetime import datetime
 from typing import Dict, Any
+
+from requests.exceptions import RequestException
+from src.utils.telegraph_utils import create_telegraph_page
 
 # 创建命名记录器
 logger = logging.getLogger(__name__)
@@ -143,37 +148,66 @@ class TelegramSender:
             logger.error(error_msg)
             return {"success": False, "error": error_msg}
 
+    def _send_via_telegraph(self, original_text: str) -> Dict[str, Any]:
+        """
+        Create a Telegraph page and send a hidden link (preview card only).
+
+        Args:
+            original_text: The original markdown text (not escaped).
+
+        Returns:
+            Response from Telegram API.
+        """
+        try:
+            # Generate title with current date
+            title = f"RSS Digest - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+            # Create Telegraph page
+            page_url = create_telegraph_page(title, original_text)
+
+            # Send link with readable text
+            link_text = f"RSS Digest - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            message = f'<a href="{page_url}">{link_text}</a>'
+            return self._send_single_message(message, parse_mode="HTML")
+
+        except (RequestException, ValueError) as e:
+            error_msg = f"Failed to create Telegraph page: {str(e)}"
+            logger.error(error_msg)
+            # Fallback to splitting if Telegraph fails
+            logger.info("Falling back to message splitting...")
+            processed_text = _process_markdown_structure_and_escape(original_text)
+            return self._send_long_message(processed_text, "MarkdownV2")
+
     def send_message(self, text: str, parse_mode: str = "MarkdownV2", process_markdown: bool = True) -> Dict[str, Any]:
         """
-        Send a message via Telegram, processing custom markdown and handling long messages.
+        Send a message via Telegram using Telegraph for the content.
 
         Args:
             text: Text message to send.
-            parse_mode: Message parse mode (MarkdownV2, HTML, or empty string). Defaults to MarkdownV2.
-            process_markdown: If True (default), process text with #, ##, - and escape for MarkdownV2.
+            parse_mode: Deprecated, ignored. Kept for API compatibility.
+            process_markdown: Deprecated, ignored. Kept for API compatibility.
 
         Returns:
-            Response from Telegram API for the last message part sent.
+            Response from Telegram API.
         """
-        logger.info(f"Preparing message for Telegram, original length: {len(text)} characters")
+        # Warn about deprecated parameters
+        if parse_mode != "MarkdownV2":
+            warnings.warn(
+                "parse_mode parameter is deprecated and ignored. "
+                "Messages are now sent via Telegraph.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        if not process_markdown:
+            warnings.warn(
+                "process_markdown parameter is deprecated and ignored. "
+                "Messages are now sent via Telegraph.",
+                DeprecationWarning,
+                stacklevel=2
+            )
 
-        processed_text = text
-        if parse_mode == "MarkdownV2":
-            if process_markdown:
-                logger.debug("Processing text for MarkdownV2 structure and escaping...")
-                processed_text = _process_markdown_structure_and_escape(text)
-            else:
-                logger.debug("Escaping text content for MarkdownV2...")
-                processed_text = _escape_markdown_v2_content(text)
-            logger.debug(f"Processed text length: {len(processed_text)}")
-
-        # Check length after processing/escaping
-        if len(processed_text) > 4096:  # Telegram's hard limit
-            logger.info(f"Message length ({len(processed_text)}) exceeds limit, splitting...")
-            return self._send_long_message(processed_text, parse_mode)
-        else:
-            logger.info(f"Sending single message part, length: {len(processed_text)}")
-            return self._send_single_message(processed_text, parse_mode)
+        logger.info(f"Preparing message for Telegram via Telegraph, length: {len(text)} characters")
+        return self._send_via_telegraph(text)
 
     def _send_long_message(self, processed_text: str, parse_mode: str) -> Dict[str, Any]:
         """

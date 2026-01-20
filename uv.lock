@@ -345,6 +345,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "soupsieve" },
+    { name = "telegraph" },
     { name = "typing-extensions" },
 ]
 
@@ -355,6 +356,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = "==1.0.1" },
     { name = "requests", specifier = "==2.31.0" },
     { name = "soupsieve", specifier = "==2.6" },
+    { name = "telegraph", specifier = ">=2.2.0" },
     { name = "typing-extensions", specifier = "==4.13.0" },
 ]
 
@@ -374,6 +376,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/ce/fbaeed4f9fb8b2daa961f90591662df6a86c1abf25c548329a86920aedfb/soupsieve-2.6.tar.gz", hash = "sha256:e2e68417777af359ec65daac1057404a3c8a5455bb8abc36f1a9866ab1a51abb", size = 101569, upload-time = "2024-08-13T13:39:12.166Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/c2/fe97d779f3ef3b15f05c94a2f1e3d21732574ed441687474db9d342a7315/soupsieve-2.6-py3-none-any.whl", hash = "sha256:e72c4ff06e4fb6e4b5a9f0f55fe6e81514581fca1515028625d0f299c602ccc9", size = 36186, upload-time = "2024-08-13T13:39:10.986Z" },
+]
+
+[[package]]
+name = "telegraph"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/81/1c9f99004e23555fb21b80a2ef6ddbecb3a7a4eefbc4aac75ffb5a9ccf71/telegraph-2.2.0.tar.gz", hash = "sha256:012908f18208c451c7189f4bda7c39a1369241ac436c7543bb6c3fccbe9cfd5d", size = 8011, upload-time = "2022-10-26T18:37:49.049Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d3/75/1bc2f8c4e4a736e2e582a1518eb4621db3c9dcb100f379fab5ab49c8d1ac/telegraph-2.2.0-py3-none-any.whl", hash = "sha256:d20b2a5d7cfdd66890c8c3fd60aa8585cabb7c6b03579d3eb1cd8af056ed9971", size = 10749, upload-time = "2022-10-26T18:37:47.899Z" },
 ]
 
 [[package]]

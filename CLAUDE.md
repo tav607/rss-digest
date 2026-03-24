@@ -31,9 +31,9 @@ RSS Digest Generator is a two-stage AI pipeline that:
 
 - **`src/main.py`**: CLI entry point with argparse
 - **`src/services/digest_service.py`**: Orchestrates the pipeline (`run_digest_process` → `generate_digest` → `send_digest`)
-- **`src/utils/ai_utils.py`**: `AIProcessor` class handles both stages; Stage 1 uses `STAGE1_MAX_WORKERS` for parallelism
+- **`src/utils/ai_utils.py`**: `AIProcessor` class handles both stages; Stage 1 uses `STAGE1_MAX_WORKERS` for parallelism; URL REF ID mapping replaces raw URLs in Stage 2
 - **`src/utils/db_utils.py`**: SQLite queries against FreshRSS database
-- **`src/utils/telegram_utils.py`**: `TelegramSender` with MarkdownV2 formatting and message splitting
+- **`src/utils/telegram_utils.py`**: `TelegramSender` sends via Telegraph pages with Telegram link delivery
 - **`src/utils/system_prompt.md`**: Stage 2 prompt (global digest)
 - **`src/utils/system_prompt_stage1.md`**: Stage 1 prompt (per-article summary)
 
@@ -42,16 +42,20 @@ RSS Digest Generator is a two-stage AI pipeline that:
 ```
 FreshRSS DB → db_utils.get_recent_entries() → entries[]
     ↓
-AIProcessor.summarize_articles() [Stage 1, parallel]
+AIProcessor.summarize_articles() [Stage 1, parallel] → (merged_summaries, url_map)
     ↓
-AIProcessor.finalize_digest_from_article_summaries() [Stage 2]
+AIProcessor.finalize_digest_from_article_summaries() [Stage 2, REF→URL post-processing]
     ↓
-TelegramSender.send_message()
+TelegramSender.send_message() → Telegraph page → Telegram link
 ```
 
 ### Deduplication
 
-Processed entry IDs are stored in `logs/processed_entry_ids.json`. IDs older than 48 hours are automatically pruned. On pipeline failure, IDs are not updated.
+Processed entry IDs are stored in `logs/processed_entry_ids.json` as `{id, ts}` objects. IDs are pruned based on a dynamic window: `max(48h, HOURS_BACK * 2)`. On pipeline failure, IDs are not updated. Stage 1 articles returning `[SKIP]` (empty/ad content) are filtered before Stage 2.
+
+### Error Handling
+
+`DigestGenerationError` is raised on pipeline failure. `run_digest_process` retries up to 2 times, catching both expected and unexpected exceptions.
 
 ## Configuration
 

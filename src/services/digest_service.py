@@ -8,18 +8,18 @@ import json
 
 # 导入项目模块
 from src.config import (
-    FRESHRSS_DB_PATH, 
-    AI_API_KEY, 
+    FRESHRSS_DB_PATH,
+    AI_API_KEY,
     AI_STAGE1_MODEL,
     AI_STAGE2_MODEL,
     AI_BASE_URL,
     TELEGRAM_BOT_TOKEN,
-    TELEGRAM_CHAT_ID, 
+    TELEGRAM_CHAT_ID,
     HOURS_BACK,
     PROJECT_ROOT,
 )
 from src.utils import (
-    get_recent_entries, 
+    get_recent_entries,
     AIProcessor,
     TelegramSender
 )
@@ -33,6 +33,11 @@ PROCESSED_IDS_FILE = PROJECT_ROOT / "logs" / "processed_entry_ids.json"
 DIGEST_HISTORY_FILE = PROJECT_ROOT / "logs" / "digest_history.json"
 # Number of recent digests to keep for deduplication
 DIGEST_HISTORY_LIMIT = 10
+
+
+class DigestGenerationError(Exception):
+    """Raised when digest generation fails."""
+    pass
 
 
 def _load_digest_history() -> list[str]:
@@ -72,6 +77,9 @@ def generate_digest(entries: List[Dict[Any, Any]]) -> str:
 
     Returns:
         Generated digest text including timestamp header
+
+    Raises:
+        DigestGenerationError: If digest generation fails at any stage
     """
     logger.info(
         f"Generating digest from {len(entries)} entries using two-stage pipeline"
@@ -86,10 +94,9 @@ def generate_digest(entries: List[Dict[Any, Any]]) -> str:
     )
     # Stage 1: summarize each article individually
     logger.info("Stage1: Summarizing each article individually...")
-    merged_summaries = ai_processor.summarize_articles(entries)
+    merged_summaries, url_map = ai_processor.summarize_articles(entries)
     if not merged_summaries or not merged_summaries.strip():
-        logger.error("Stage1 produced empty summaries.")
-        return "Failed to generate digest: Stage1 produced no summaries."
+        raise DigestGenerationError("Stage1 produced no summaries.")
 
     # Load digest history for deduplication
     digest_history = _load_digest_history()
@@ -99,16 +106,12 @@ def generate_digest(entries: List[Dict[Any, Any]]) -> str:
     logger.info("Stage2: Finalizing digest from per-article summaries...")
     ai_generated_digest = ai_processor.finalize_digest_from_article_summaries(
         merged_summaries,
-        digest_history=digest_history
+        digest_history=digest_history,
+        url_map=url_map,
     )
     if not ai_generated_digest or not ai_generated_digest.strip():
-        logger.error("Stage2 produced empty digest.")
-        return "Failed to generate digest: Stage2 returned empty content."
+        raise DigestGenerationError("Stage2 returned empty content.")
 
-    if not ai_generated_digest or len(ai_generated_digest.strip()) == 0:
-        logger.error("AIProcessor generated an empty or invalid digest.")
-        return "Failed to generate digest: AI returned empty content."
-    
     # Format the current datetime
     formatted_datetime = datetime.datetime.now().strftime("%Y/%m/%d %H:%M")
 
@@ -118,7 +121,7 @@ def generate_digest(entries: List[Dict[Any, Any]]) -> str:
 
     logger.info(f"Digest generated successfully, final length: {len(full_digest_with_title)} characters.")
     logger.debug(f"Final digest content (first 150 chars): {full_digest_with_title[:150]}...")
-    
+
     return full_digest_with_title
 
 def send_digest(digest_text: str) -> Dict[str, Any]:
@@ -140,88 +143,111 @@ def send_digest(digest_text: str) -> Dict[str, Any]:
 
     return telegram.send_message(digest_text)
 
-def _update_processed_ids(entry_ids: List[int]):
-    """Helper function to update the processed IDs file incrementally and clean old IDs."""
+def _update_processed_ids(entry_ids: List[int], hours_back: int = None):
+    """Helper function to update the processed IDs file incrementally and clean old IDs.
+
+    Uses {id, ts} structure for reliable timestamp-based pruning.
+    """
+    now_ts = int(datetime.datetime.now().timestamp())
+    pruning_hours = max(48, (hours_back or HOURS_BACK) * 2)
+
     try:
-        existing_ids = []
+        existing_entries = []
         if PROCESSED_IDS_FILE.exists():
             with open(PROCESSED_IDS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 if isinstance(data, list):
-                    existing_ids = data
-        # Combine existing and new IDs
-        all_ids_set = set(existing_ids) | set(entry_ids)
-        # Calculate cutoff timestamp for 48 hours ago
-        cutoff_ts = int((datetime.datetime.now() - datetime.timedelta(hours=48)).timestamp())
-        # Filter out IDs older than cutoff based on first 10 digits
-        filtered_ids = [eid for eid in all_ids_set if int(str(eid)[:10]) >= cutoff_ts]
+                    if data and isinstance(data[0], dict):
+                        # New {id, ts} format
+                        existing_entries = data
+                    else:
+                        # Backward compat: migrate old [id, ...] format
+                        existing_entries = [{"id": eid, "ts": now_ts} for eid in data]
+
+        # Build set of existing IDs for dedup
+        existing_id_set = {entry["id"] for entry in existing_entries}
+
+        # Add new IDs
+        new_entries = [
+            {"id": eid, "ts": now_ts}
+            for eid in entry_ids
+            if eid not in existing_id_set
+        ]
+        all_entries = existing_entries + new_entries
+
+        # Prune old entries
+        cutoff_ts = int((datetime.datetime.now() - datetime.timedelta(hours=pruning_hours)).timestamp())
+        filtered_entries = [entry for entry in all_entries if entry["ts"] >= cutoff_ts]
+
         # Write back to file
         with open(PROCESSED_IDS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(filtered_ids, f, ensure_ascii=False, indent=4)
-        logger.info(f"Successfully updated processed IDs file with {len(filtered_ids)} entries: {PROCESSED_IDS_FILE}")
+            json.dump(filtered_entries, f, ensure_ascii=False, indent=4)
+        logger.info(f"Successfully updated processed IDs file with {len(filtered_entries)} entries (pruning window: {pruning_hours}h): {PROCESSED_IDS_FILE}")
     except Exception as e:
         logger.error(f"Failed to update processed IDs file {PROCESSED_IDS_FILE}: {e}")
 
 def run_digest_process(hours_back: int = None, send: bool = True) -> str:
     """
     Run the complete digest generation and sending process
-    
+
     Args:
         hours_back: Hours back to look for entries (overrides config)
         send: Whether to send the digest via Telegram
-        
+
     Returns:
         Generated digest text
     """
     # Use config value if not provided
     if hours_back is None:
         hours_back = HOURS_BACK
-        
+
     logger.info(f"Starting RSS digest process (looking back {hours_back} hours, using processed IDs file: {PROCESSED_IDS_FILE})")
-    
+
     # Get entries from database
     entries = get_recent_entries(
         db_path=FRESHRSS_DB_PATH,
         hours_back=hours_back,
         processed_ids_file_path=str(PROCESSED_IDS_FILE)
     )
-    
+
     if not entries:
         message = f"No new entries found in the past {hours_back} hours (after filtering processed IDs)."
         logger.warning(message)
         return message
-        
+
     logger.info(f"Found {len(entries)} new entries in the past {hours_back} hours (after filtering)")
-    
+
     # Attempt digest generation with retry
     max_attempts = 2
-    attempt = 0
+    last_error = None
     digest = ""
-    error_message = ""
-    while attempt < max_attempts:
-        attempt += 1
+    for attempt in range(1, max_attempts + 1):
         logger.info(f"Generating digest attempt {attempt}/{max_attempts}")
-        digest = generate_digest(entries)
-        # Check for failure indicators
-        if digest and digest.strip() and not any(ind in digest for ind in ["Failed to generate digest", "无法生成摘要"]):
-            break
-        error_message = digest or "Empty digest"
-        logger.error(f"Digest generation attempt {attempt} failed: {error_message}")
-        if attempt < max_attempts:
-            logger.info("Retrying digest generation...")
+        try:
+            digest = generate_digest(entries)
+            break  # Success
+        except DigestGenerationError as e:
+            last_error = e
+            logger.error(f"Digest generation attempt {attempt} failed: {e}")
+            if attempt < max_attempts:
+                logger.info("Retrying digest generation...")
+        except Exception as e:
+            last_error = e
+            logger.error(f"Digest generation attempt {attempt} unexpected error: {e}")
+            if attempt < max_attempts:
+                logger.info("Retrying digest generation...")
 
     # Final check for failure
-    if not digest or any(ind in digest for ind in ["Failed to generate digest", "无法生成摘要"]):
+    if last_error and not digest:
         logger.error(f"Digest generation failed after {max_attempts} attempts. Not updating processed IDs.")
         if send:
-            # Send error message via Telegram
             telegram = TelegramSender(bot_token=TELEGRAM_BOT_TOKEN, chat_id=TELEGRAM_CHAT_ID)
-            telegram.send_message(f"Digest generation failed after {max_attempts} attempts. Error: {error_message}")
-        return digest
+            telegram.send_message(f"Digest generation failed after {max_attempts} attempts. Error: {last_error}")
+        return ""
 
     # Digest generated successfully
     current_entry_ids = [entry['id'] for entry in entries]
-    _update_processed_ids(current_entry_ids)
+    _update_processed_ids(current_entry_ids, hours_back=hours_back)
 
     if send:
         response = send_digest(digest)
@@ -229,4 +255,4 @@ def run_digest_process(hours_back: int = None, send: bool = True) -> str:
         if response.get("success"):
             _save_digest_to_history(digest)
 
-    return digest 
+    return digest

@@ -4,7 +4,6 @@
 import requests
 import logging
 import re
-import warnings
 from datetime import datetime
 from typing import Dict, Any
 
@@ -178,34 +177,16 @@ class TelegramSender:
             processed_text = _process_markdown_structure_and_escape(original_text)
             return self._send_long_message(processed_text, "MarkdownV2")
 
-    def send_message(self, text: str, parse_mode: str = "MarkdownV2", process_markdown: bool = True) -> Dict[str, Any]:
+    def send_message(self, text: str) -> Dict[str, Any]:
         """
         Send a message via Telegram using Telegraph for the content.
 
         Args:
             text: Text message to send.
-            parse_mode: Deprecated, ignored. Kept for API compatibility.
-            process_markdown: Deprecated, ignored. Kept for API compatibility.
 
         Returns:
             Response from Telegram API.
         """
-        # Warn about deprecated parameters
-        if parse_mode != "MarkdownV2":
-            warnings.warn(
-                "parse_mode parameter is deprecated and ignored. "
-                "Messages are now sent via Telegraph.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-        if not process_markdown:
-            warnings.warn(
-                "process_markdown parameter is deprecated and ignored. "
-                "Messages are now sent via Telegraph.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-
         logger.info(f"Preparing message for Telegram via Telegraph, length: {len(text)} characters")
         return self._send_via_telegraph(text)
 

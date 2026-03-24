@@ -65,13 +65,16 @@ def get_recent_entries(db_path: str, hours_back: int = 48, processed_ids_file_pa
         try:
             with open(processed_ids_file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                if isinstance(data, list): # Ensure it's a list of IDs
-                    processed_entry_ids = set(data)
+                if isinstance(data, list):
+                    if data and isinstance(data[0], dict):
+                        # New {id, ts} format
+                        processed_entry_ids = set(item["id"] for item in data)
+                    else:
+                        # Old [id, ...] format
+                        processed_entry_ids = set(data)
         except json.JSONDecodeError:
-            # Handle empty or malformed JSON file
             pass
         except Exception:
-            # Log other potential errors if a logger is available here
             pass
 
     # Calculate timestamp for N hours ago
@@ -79,43 +82,45 @@ def get_recent_entries(db_path: str, hours_back: int = 48, processed_ids_file_pa
     
     # Connect to the database
     conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    # Query for recent entries including their content
-    query = """
-    SELECT 
-        e.id, e.title, e.author, e.content, e.link, e.date, 
-        c.name as category, f.name as feed_name 
-    FROM entry e
-    JOIN feed f ON e.id_feed = f.id
-    LEFT JOIN category c ON f.category = c.id
-    WHERE e.date >= ?
-    ORDER BY e.date DESC
-    """
-    
-    cursor.execute(query, (timestamp,))
-    results = cursor.fetchall()
-    
-    # Convert to list of dictionaries and filter out processed entries
-    entries = []
-    for row in results:
-        entry_id = row['id']
-        if entry_id not in processed_entry_ids:
-            raw_content = row['content']
-            entries.append({
-                'id': entry_id,
-                'title': row['title'],
-                'author': row['author'],
-                'content': clean_html_content(raw_content),
-                'raw_content': raw_content,
-                'link': row['link'],
-                'date': datetime.datetime.fromtimestamp(row['date']),
-                'category': row['category'] or 'Uncategorized',
-                'feed_name': row['feed_name']
-            })
-    
-    conn.close()
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Query for recent entries including their content
+        query = """
+        SELECT
+            e.id, e.title, e.author, e.content, e.link, e.date,
+            c.name as category, f.name as feed_name
+        FROM entry e
+        JOIN feed f ON e.id_feed = f.id
+        LEFT JOIN category c ON f.category = c.id
+        WHERE e.date >= ?
+        ORDER BY e.date DESC
+        """
+
+        cursor.execute(query, (timestamp,))
+        results = cursor.fetchall()
+
+        # Convert to list of dictionaries and filter out processed entries
+        entries = []
+        for row in results:
+            entry_id = row['id']
+            if entry_id not in processed_entry_ids:
+                raw_content = row['content']
+                entries.append({
+                    'id': entry_id,
+                    'title': row['title'],
+                    'author': row['author'],
+                    'content': clean_html_content(raw_content),
+                    'raw_content': raw_content,
+                    'link': row['link'],
+                    'date': datetime.datetime.fromtimestamp(row['date']),
+                    'category': row['category'] or 'Uncategorized',
+                    'feed_name': row['feed_name']
+                })
+    finally:
+        conn.close()
+
     return entries
 
 def group_entries_by_category(entries: List[Dict[Any, Any]]) -> Dict[str, List[Dict[Any, Any]]]:
